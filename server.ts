@@ -262,7 +262,7 @@ async function ensureGeneralManagerExists(pool: Pool) {
 // API Routes: Supabase Authentication
 // ============================================================================
 
-app.post('/api/auth/login', async (req: Request, res: Response) => {
+app.post(['/api/auth/login', '/auth/login', '/login'], async (req: Request, res: Response) => {
   const { identifier, password } = req.body;
   const trimmedId = (identifier || '').trim();
   const trimmedPass = (password || '').trim();
@@ -555,7 +555,7 @@ app.post('/api/db/disconnect', requireOwner, async (req: Request, res: Response)
 });
 
 // 1. Health check & table metrics (Resilient non-500 response for client polling)
-app.get('/api/db/health', async (req: Request, res: Response) => {
+app.get(['/api/db/health', '/db/health', '/health'], async (req: Request, res: Response) => {
   const pool = getDbPool();
   if (!pool) {
     return res.json({
@@ -654,7 +654,7 @@ app.post('/api/db/setup', requireOwner, async (req: Request, res: Response) => {
 });
 
 // 3. Get entire application state from PostgreSQL
-app.get('/api/db/state', async (req: Request, res: Response) => {
+app.get(['/api/db/state', '/db/state', '/state'], async (req: Request, res: Response) => {
   const pool = getDbPool();
   if (!pool || isDbAuthFailing) {
     return res.json({
@@ -902,7 +902,7 @@ app.get('/api/db/state', async (req: Request, res: Response) => {
 });
 
 // 4. Bulk Migrate / Push state to PostgreSQL
-app.post('/api/db/migrate', requireAuth, async (req: Request, res: Response) => {
+app.post(['/api/db/migrate', '/db/migrate', '/migrate'], async (req: Request, res: Response) => {
   const pool = getDbPool();
   if (!pool || isDbAuthFailing) {
     return res.json({
