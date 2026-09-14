@@ -436,8 +436,13 @@ export default function App() {
       prev.map((a) => (a.id === updatedAssistant.id ? updatedAssistant : a))
     );
     if (currentUser.id === updatedAssistant.id) {
+      const isGM =
+        (updatedAssistant.roleTitle || '').includes('المدير العام') ||
+        (updatedAssistant.roleTitle || '').toLowerCase().includes('general manager') ||
+        updatedAssistant.id === 'OWNER-01';
+        
       setCurrentUser({
-        type: 'assistant',
+        type: isGM ? 'owner' : 'assistant',
         id: updatedAssistant.id,
         name: updatedAssistant.name,
         username: updatedAssistant.username,
