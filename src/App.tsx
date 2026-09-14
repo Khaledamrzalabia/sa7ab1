@@ -193,6 +193,7 @@ export default function App() {
   const [dbConnected, setDbConnected] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const isInitialLoadDone = useRef<boolean>(false);
+  const isRemoteUpdate = useRef<boolean>(false);
 
   // User Authentication & Session State
   const [currentUser, setCurrentUser] = useState<UserSession>(() => {
@@ -230,7 +231,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch database state from Supabase Transaction Pooler (Port 6543)
+  // Fetch database state from Supabase Transaction Pooler
   useEffect(() => {
     const fetchDatabaseState = async () => {
       try {
@@ -248,6 +249,10 @@ export default function App() {
             syncManager.recordSuccessfulSync();
             setDbConnected(true);
             const d = json.data;
+            
+            // Mark as remote update to prevent loopback sync
+            isRemoteUpdate.current = true;
+            
             if (Array.isArray(d.workers)) setWorkers(d.workers.map(normalizeWorker));
             if (Array.isArray(d.attendanceLogs)) setAttendanceLogs(d.attendanceLogs);
             if (Array.isArray(d.incentivePenalties)) setIncentivePenalties(d.incentivePenalties);
@@ -260,6 +265,12 @@ export default function App() {
             if (Array.isArray(d.charities)) setCharities(d.charities);
             if (Array.isArray(d.assistants)) setAssistants(d.assistants);
             if (Array.isArray(d.customerLoans)) setCustomerLoans(d.customerLoans);
+            
+            // Reset remote update flag after React batches these state updates
+            setTimeout(() => {
+              isRemoteUpdate.current = false;
+            }, 100);
+            
             return;
           }
         }
@@ -273,6 +284,17 @@ export default function App() {
     };
 
     fetchDatabaseState();
+
+    // Listen for realtime push notifications from Supabase WebSockets
+    const handleRealtimeUpdate = (e: any) => {
+      // Small debounce before fetching state to allow DB triggers to finish
+      setTimeout(() => fetchDatabaseState(), 300);
+    };
+    window.addEventListener('supabase_realtime_update', handleRealtimeUpdate);
+    
+    return () => {
+      window.removeEventListener('supabase_realtime_update', handleRealtimeUpdate);
+    };
   }, [isLoggedIn]);
 
   // Save to localStorage as secondary backup
@@ -334,7 +356,8 @@ export default function App() {
 
   // Synchronize changes to Supabase PostgreSQL Database (Debounced + Offline Queue)
   useEffect(() => {
-    if (!isInitialLoadDone.current || dbLoading) return;
+    // Prevent sync loop if this update was triggered by a realtime remote fetch
+    if (!isInitialLoadDone.current || dbLoading || isRemoteUpdate.current) return;
 
     const timer = setTimeout(async () => {
       const payload = {

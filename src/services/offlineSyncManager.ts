@@ -93,7 +93,7 @@ class OfflineSyncManager {
   }
 
   /**
-   * Health-check heartbeat to test Supabase connection status
+   * Health-check heartbeat to test Supabase connection status via API (Fallback)
    */
   public async checkCloudHealth(): Promise<boolean> {
     if (!this.state.isOnline) {
@@ -108,39 +108,85 @@ class OfflineSyncManager {
       const contentType = res.headers.get('content-type') || '';
       if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
-        const wasConnected = this.state.isCloudConnected;
-        this.state.isCloudConnected = !!data.connected;
-        this.state.statusMessage = data.connected
-          ? 'متصل بالسحابة (Supabase) اللحظية'
-          : 'الوضع المحلي الآمن (بيانات الاعتماد السحابية بحاجة لضبط)';
-
-        if (!wasConnected && data.connected) {
-          // Connection just came online, trigger auto flush
-          this.flushQueue();
+        // Only update if realtime is not already connected
+        if (!this.state.isCloudConnected) {
+            this.state.isCloudConnected = !!data.connected;
+            this.state.statusMessage = data.connected
+              ? 'متصل عبر الـ API (المزامنة اللحظية قيد الانتظار)'
+              : 'الوضع المحلي الآمن (بيانات الاعتماد السحابية بحاجة لضبط)';
+            this.notify();
         }
-
-        this.notify();
         return !!data.connected;
       } else {
-        this.state.isCloudConnected = false;
-        this.state.statusMessage = 'الوضع المحلي الآمن (السيرفر غير متصل بالسحابة)';
-        this.notify();
         return false;
       }
     } catch (e) {
-      this.state.isCloudConnected = false;
-      this.state.statusMessage = 'الوضع المحلي الآمن (السيرفر غير متاح)';
-      this.notify();
       return false;
     }
   }
 
+  private realTimeSubscription: any = null;
+
   public startHeartbeat(intervalMs: number = 25000) {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    
+    // Initial health check
     this.checkCloudHealth();
+    
+    // Periodically verify connection (especially if websockets drop)
     this.heartbeatTimer = setInterval(() => {
-      this.checkCloudHealth();
+      if (!this.state.isCloudConnected) {
+          this.checkCloudHealth();
+      }
     }, intervalMs);
+
+    // Initialize Supabase True Real-time (WebSockets)
+    this.initRealtime();
+  }
+
+  private initRealtime() {
+    if (typeof window === 'undefined') return;
+
+    // Dynamically import getSupabase to avoid circular dependency issues at boot
+    import('../lib/supabase').then(({ getSupabase }) => {
+      const supabase = getSupabase();
+      if (!supabase) return;
+
+      if (this.realTimeSubscription) {
+        supabase.removeChannel(this.realTimeSubscription);
+      }
+
+      this.realTimeSubscription = supabase
+        .channel('schema-db-changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public' },
+          (payload) => {
+            console.log('Realtime DB change received!', payload);
+            this.state.statusMessage = 'تم استلام تحديث جديد لحظياً';
+            this.state.isCloudConnected = true;
+            this.notify();
+            
+            // Notify App.tsx to cleanly fetch the latest remote state
+            window.dispatchEvent(new CustomEvent('supabase_realtime_update', { detail: payload }));
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            const wasConnected = this.state.isCloudConnected;
+            this.state.isCloudConnected = true;
+            this.state.statusMessage = 'متصل بالسحابة (Supabase) اللحظية';
+            if (!wasConnected) {
+              this.flushQueue(); // Auto flush when websocket connects
+            }
+            this.notify();
+          } else if (status === 'TIMED_OUT' || status === 'CLOSED') {
+            this.state.isCloudConnected = false;
+            this.state.statusMessage = 'جاري إعادة الاتصال اللحظي بالسحابة...';
+            this.notify();
+          }
+        });
+    });
   }
 
   /**

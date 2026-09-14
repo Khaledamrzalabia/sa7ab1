@@ -267,7 +267,59 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ]
       );
     }
+    // 8. Payment Vouchers
+    for (const pv of paymentVouchers) {
+      await client.query(
+        `INSERT INTO public.payment_vouchers (id, date, amount, type, partner_name, reason, notes, recorded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET
+           amount = EXCLUDED.amount,
+           reason = EXCLUDED.reason`,
+        [pv.id, pv.date, pv.amount, pv.type, pv.partnerName || pv.partner_name || '', pv.reason, pv.notes || '', pv.recordedBy || pv.recorded_by || '']
+      );
+    }
 
+    // 9. Partners
+    for (const p of partners) {
+      await client.query(
+        `INSERT INTO public.partners (id, name, type, phone, notes, status, start_date)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           status = EXCLUDED.status`,
+        [p.id, p.name, p.type || 'investor', p.phone || '', p.notes || '', p.status || 'active', p.startDate || p.start_date || '']
+      );
+    }
+
+    // 10. Partner Payouts
+    for (const po of payouts) {
+      await client.query(
+        `INSERT INTO public.partner_payouts (id, partner_id, amount, date, type, notes)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id) DO UPDATE SET amount = EXCLUDED.amount`,
+        [po.id, po.partnerId || po.partner_id, po.amount, po.date, po.type || 'profit_share', po.notes || '']
+      );
+    }
+
+    // 11. Charities
+    for (const ch of charities) {
+      await client.query(
+        `INSERT INTO public.charity_donations (id, date, amount, beneficiary, type, notes, recorded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO UPDATE SET amount = EXCLUDED.amount`,
+        [ch.id, ch.date, ch.amount, ch.beneficiary || '', ch.type || 'cash', ch.notes || '', ch.recordedBy || ch.recorded_by || '']
+      );
+    }
+
+    // 12. Customer Loans
+    for (const cl of customerLoans) {
+      await client.query(
+        `INSERT INTO public.customer_loans (id, customer_id, worker_id, amount, date, type, notes, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status`,
+        [cl.id, cl.customerId || cl.customer_id, cl.workerId || cl.worker_id, cl.amount, cl.date, cl.type || 'loan', cl.notes || '', cl.status || 'active']
+      );
+    }
     await client.query('COMMIT');
     return res.status(200).json({ success: true, message: 'تم حفظ ومزامنة البيانات مع Supabase بنجاح!' });
   } catch (err: any) {
