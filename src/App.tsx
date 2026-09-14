@@ -230,7 +230,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch initial database state from Supabase Transaction Pooler (Port 6543)
+  // Fetch database state from Supabase Transaction Pooler (Port 6543)
   useEffect(() => {
     const fetchDatabaseState = async () => {
       try {
@@ -241,33 +241,31 @@ export default function App() {
         const res = await fetch('/api/db/state', {
           headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         });
-        if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
           const json = await res.json();
           if (json.success && json.data) {
             syncManager.recordSuccessfulSync();
             setDbConnected(true);
             const d = json.data;
-            setWorkers((d.workers || []).map(normalizeWorker));
-            setAttendanceLogs(d.attendanceLogs || []);
-            setIncentivePenalties(d.incentivePenalties || []);
-            setCustomers(d.customers || []);
-            setInvoices(d.invoices || []);
-            setPaymentVouchers(d.paymentVouchers || []);
-            setPartners(d.partners || []);
-            setPayouts(d.payouts || []);
-            setExpenses(d.expenses || []);
-            setCharities(d.charities || []);
-            setAssistants(d.assistants || []);
-            setCustomerLoans(d.customerLoans || []);
-          } else {
-            setDbConnected(false);
+            if (Array.isArray(d.workers)) setWorkers(d.workers.map(normalizeWorker));
+            if (Array.isArray(d.attendanceLogs)) setAttendanceLogs(d.attendanceLogs);
+            if (Array.isArray(d.incentivePenalties)) setIncentivePenalties(d.incentivePenalties);
+            if (Array.isArray(d.customers)) setCustomers(d.customers);
+            if (Array.isArray(d.invoices)) setInvoices(d.invoices);
+            if (Array.isArray(d.paymentVouchers)) setPaymentVouchers(d.paymentVouchers);
+            if (Array.isArray(d.partners)) setPartners(d.partners);
+            if (Array.isArray(d.payouts)) setPayouts(d.payouts);
+            if (Array.isArray(d.expenses)) setExpenses(d.expenses);
+            if (Array.isArray(d.charities)) setCharities(d.charities);
+            if (Array.isArray(d.assistants)) setAssistants(d.assistants);
+            if (Array.isArray(d.customerLoans)) setCustomerLoans(d.customerLoans);
+            return;
           }
-        } else {
-          setDbConnected(false);
         }
+        syncManager.checkCloudHealth();
       } catch (err) {
-        console.warn('Could not fetch initial database state, running offline mode:', err);
-        setDbConnected(false);
+        console.warn('Initial cloud database sync notice:', err);
       } finally {
         setDbLoading(false);
         isInitialLoadDone.current = true;
@@ -275,7 +273,7 @@ export default function App() {
     };
 
     fetchDatabaseState();
-  }, []);
+  }, [isLoggedIn]);
 
   // Save to localStorage as secondary backup
   useEffect(() => {
