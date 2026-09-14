@@ -1,0 +1,4 @@
+-- ============================================================================
+-- SAHAB FACTORY ERP - Production State (Clean / Formatted - Zero Records)
+-- All tables are completely empty and ready for fresh production entry.
+-- ============================================================================

@@ -1,0 +1,6 @@
+{
+  "name": "SAHAB - نظام إدارة مصنع الملابس والكوادر",
+  "description": "منصة متكاملة لمصنع سحاب للملابس الجاهزة، إدارة شؤون الكوادر والرواتب بالدقيقة، كود الحضور والانصراف، حسابات العملاء والتوريد، وإدارة الشراكة والأرباح.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

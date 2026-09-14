@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SAHAB - مصنع سحاب للملابس الجاهزة</title>
+    <meta name="description" content="منصة متكاملة لمصنع سحاب للملابس الجاهزة، كود الحضور والانصراف بالدقيقة، مسير الرواتب والأجور، وإدارة حسابات العملاء والتوريد." />
+    <meta property="og:title" content="SAHAB - مصنع سحاب للملابس الجاهزة" />
+    <meta property="og:description" content="منصة متكاملة لمصنع سحاب للملابس الجاهزة، كود الحضور والانصراف بالدقيقة، مسير الرواتب والأجور، وإدارة حسابات العملاء والتوريد." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    
+    <!-- Window.fetch protection for browser sandbox / polyfills -->
+    <script>
+      (function() {
+        try {
+          var originalFetch = window.fetch;
+          var fetchHolder = originalFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() {
+              return fetchHolder || originalFetch;
+            },
+            set: function(fn) {
+              fetchHolder = fn;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {
+          // Ignore if cannot be redefined
+        }
+      })();
+    </script>
+    
+    <!-- Google Fonts & Material Symbols -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+  </head>
+  <body class="bg-[#F8FAFC] text-[#0F172A] antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
