@@ -17,6 +17,7 @@ import LoginPage from './components/LoginPage';
 import BackupModal from './components/BackupModal';
 import RegularityBonusHub from './components/RegularityBonusHub';
 import { syncManager } from './services/offlineSyncManager';
+import { authService } from './services/authService';
 
 import {
   Worker,
@@ -211,10 +212,11 @@ export default function App() {
   // Mobile Menu Drawer State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Global Login Portal Status
+  // Global Login Portal Status (Requires explicit authentication)
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.LOGGED_IN);
-    return saved !== null ? saved === 'true' : true;
+    const savedLoggedIn = localStorage.getItem(STORAGE_KEYS.LOGGED_IN);
+    const savedSession = localStorage.getItem(STORAGE_KEYS.SESSION);
+    return savedLoggedIn === 'true' && !!savedSession;
   });
 
   // Active Navigation Screen State
@@ -504,10 +506,12 @@ export default function App() {
   const handleLoginSuccess = (session: UserSession) => {
     setCurrentUser(session);
     setIsLoggedIn(true);
+    authService.saveSession(session);
   };
 
   // Logout handler
   const handleLogout = () => {
+    authService.logout();
     setIsLoggedIn(false);
   };
 
