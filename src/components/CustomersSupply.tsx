@@ -3,6 +3,7 @@ import { Customer, Invoice, PaymentVoucher, CustomerLoan, InvoiceItem, InvoiceVe
 import { initialInvoices, initialPaymentVouchers } from '../data';
 import InvoiceVersionHistoryModal from './InvoiceVersionHistoryModal';
 import DeliveredItemsInspectionModal from './DeliveredItemsInspectionModal';
+import { generateUniqueId } from '../utils/idGenerator';
 
 interface CustomersSupplyProps {
   customers: Customer[];
@@ -110,7 +111,7 @@ export default function CustomersSupply({
       return;
     }
 
-    const newCustId = `CUST-${Math.floor(200 + Math.random() * 800)}`;
+    const newCustId = generateUniqueId('CUST');
     const newCustomer: Customer = {
       id: newCustId,
       name: newCustName.trim(),
@@ -243,7 +244,18 @@ export default function CustomersSupply({
         items: existingInv.items.map(i => ({ ...i }))
       };
 
-      const amountDiff = invType === 'outgoing' ? (grandTotal - existingInv.amount) : 0;
+      // Accurately compute the delta for customer total deal when switching between outgoing and incoming
+      let amountDiff = 0;
+      if (existingInv.type === 'outgoing' && invType === 'outgoing') {
+        amountDiff = grandTotal - existingInv.amount;
+      } else if (existingInv.type === 'outgoing' && invType === 'incoming') {
+        amountDiff = -existingInv.amount;
+      } else if (existingInv.type === 'incoming' && invType === 'outgoing') {
+        amountDiff = grandTotal;
+      } else {
+        amountDiff = 0;
+      }
+
       const paidDiff = finalPaid - existingInv.paid;
 
       const updatedInvoice: Invoice = {
@@ -262,7 +274,7 @@ export default function CustomersSupply({
       setInvoices(prev => prev.map(inv => inv.id === editingInvoiceId ? updatedInvoice : inv));
 
       if (paidDiff > 0) {
-        const voucherId = `RCV-${Math.floor(1000 + Math.random() * 9000)}`;
+        const voucherId = generateUniqueId('RCV');
         const newVoucher: PaymentVoucher = {
           id: voucherId,
           customerId: activeCustomerFileId,
@@ -272,11 +284,11 @@ export default function CustomersSupply({
           method: "تحصيل نقدي عند تعديل الفاتورة",
           invoiceId: editingInvoiceId
         };
-        setPayments([newVoucher, ...payments]);
+        setPayments(prev => [newVoucher, ...prev]);
 
         if (propSetExpenses) {
           propSetExpenses(prev => [{
-            id: `REV-${Date.now().toString().slice(-4)}`,
+            id: generateUniqueId('REV'),
             title: `تحصيل نقدي عند تعديل الفاتورة: ${currentCust.companyName}`,
             amount: paidDiff,
             type: 'in',
@@ -308,7 +320,7 @@ export default function CustomersSupply({
       }));
     } else {
       // Create new invoice
-      const newInvoiceId = `INV-2026-${Math.floor(100 + Math.random() * 900)}`;
+      const newInvoiceId = generateUniqueId('INV-2026');
       const newInvoice: Invoice = {
         id: newInvoiceId,
         customerId: activeCustomerFileId,
@@ -325,10 +337,10 @@ export default function CustomersSupply({
         history: []
       };
 
-      setInvoices([newInvoice, ...invoices]);
+      setInvoices(prev => [newInvoice, ...prev]);
 
       if (finalPaid > 0) {
-        const voucherId = `RCV-${Math.floor(1000 + Math.random() * 9000)}`;
+        const voucherId = generateUniqueId('RCV');
         const newVoucher: PaymentVoucher = {
           id: voucherId,
           customerId: activeCustomerFileId,
@@ -338,11 +350,11 @@ export default function CustomersSupply({
           method: "تحصيل نقدي عند إصدار الفاتورة",
           invoiceId: newInvoiceId
         };
-        setPayments([newVoucher, ...payments]);
+        setPayments(prev => [newVoucher, ...prev]);
 
         if (propSetExpenses) {
           propSetExpenses(prev => [{
-            id: `REV-${Date.now().toString().slice(-4)}`,
+            id: generateUniqueId('REV'),
             title: `تحصيل نقدي عند إصدار الفاتورة: ${currentCust.companyName}`,
             amount: finalPaid,
             type: 'in',
@@ -393,7 +405,7 @@ export default function CustomersSupply({
     const currentCust = customers.find(c => c.id === activeCustomerFileId);
     if (!currentCust) return;
 
-    const voucherId = `RCV-${Math.floor(1000 + Math.random() * 9000)}`;
+    const voucherId = generateUniqueId('RCV');
     const timeNow = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
     const dateNow = new Date().toISOString().split('T')[0];
 
@@ -418,12 +430,12 @@ export default function CustomersSupply({
       invoiceId: depositInvoiceId || undefined
     };
 
-    setPayments([newVoucher, ...payments]);
+    setPayments(prev => [newVoucher, ...prev]);
 
     // Record cash inflow in company treasury expenses ledger
     if (propSetExpenses) {
       const newIncomeExpense: Expense = {
-        id: `REV-${Date.now().toString().slice(-4)}`,
+        id: generateUniqueId('REV'),
         title: `تحصيل نقدي: ${currentCust.companyName}`,
         amount: depositAmount,
         type: 'in',
@@ -468,7 +480,7 @@ export default function CustomersSupply({
     if (depositInvoiceId && depositAllocation === 'invoice_direct') {
       setInvoices(prev => prev.map(inv => {
         if (inv.id === depositInvoiceId) {
-          const updatedPaid = inv.paid + depositAmount;
+          const updatedPaid = Math.min(inv.amount, inv.paid + depositAmount);
           return {
             ...inv,
             paid: updatedPaid,
@@ -494,7 +506,7 @@ export default function CustomersSupply({
     const currentCust = customers.find(c => c.id === activeCustomerFileId);
     if (!currentCust) return;
 
-    const newLoanId = `LOAN-${Math.floor(2000 + Math.random() * 8000)}`;
+    const newLoanId = generateUniqueId('LOAN');
     const timeNow = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
     const dateNow = new Date().toISOString().split('T')[0];
 
@@ -508,13 +520,13 @@ export default function CustomersSupply({
       notes: loanNotes.trim() || (loanType === 'lend' ? "تسليف نقدي للعميل" : "استلاف كاش مؤقت من العميل")
     };
 
-    setLoans([newLoan, ...loans]);
+    setLoans(prev => [newLoan, ...prev]);
 
     // Record cash outflow/inflow in central company treasury expenses ledger
     if (propSetExpenses) {
       const isLend = loanType === 'lend';
       const newLoanExpense: Expense = {
-        id: `EXP-LOAN-${Date.now().toString().slice(-4)}`,
+        id: generateUniqueId('EXP-LOAN'),
         title: isLend ? `صرف سلفة عميل: ${currentCust.companyName}` : `استلاف نقدي من عميل: ${currentCust.companyName}`,
         amount: loanAmount,
         type: isLend ? 'out' : 'in',

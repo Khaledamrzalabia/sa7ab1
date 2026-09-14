@@ -6,6 +6,7 @@ import {
   getPreviousWeekRange,
   getCurrentWeekRange,
 } from '../utils/regularityEngine';
+import { generateUniqueId } from '../utils/idGenerator';
 
 interface RegularityBonusHubProps {
   workers: Worker[];
@@ -98,9 +99,20 @@ export default function RegularityBonusHub({
   const nextYear = selectedMonth === 12 ? selectedYear + 1 : selectedYear;
   const disburseDateFormatted = `20 / ${nextMonth < 10 ? '0' + nextMonth : nextMonth} / ${nextYear}`;
 
-  // Disburse Weekly Bonus to Treasury
-  const [isWeeklyDisbursed, setIsWeeklyDisbursed] = useState<boolean>(false);
+  // Disburse Weekly Bonus to Treasury with Idempotency Guard
+  const [localDisbursedWeeks, setLocalDisbursedWeeks] = useState<Set<string>>(new Set());
+  const expectedReceiptRef = `REG-WK-${selectedWeekStart}`;
+  const isAlreadyDisbursedInExpenses = Boolean(
+    expenses?.some((e) => e.receiptRef === expectedReceiptRef || e.id === `EXP-${expectedReceiptRef}`)
+  );
+  const isWeeklyDisbursed = isAlreadyDisbursedInExpenses || localDisbursedWeeks.has(selectedWeekStart);
+
   const handleDisburseWeeklyBonus = () => {
+    if (isWeeklyDisbursed) {
+      alert('تم بالفعل اعتماد وصرف مكافأة الانتظام لهذا الأسبوع في سجلات الخزينة.');
+      return;
+    }
+
     if (weeklyResult.winners.length === 0) {
       alert('لا يوجد عمال مؤهلين للفوز في هذا الأسبوع.');
       return;
@@ -115,23 +127,23 @@ export default function RegularityBonusHub({
     if (setExpenses) {
       const winnerNames = weeklyResult.winners.map((w) => `${w.workerName} (#${w.shortCode})`).join('، ');
       const newExpense: Expense = {
-        id: `EXP-REG-WK-${Date.now().toString().slice(-4)}`,
+        id: `EXP-${expectedReceiptRef}`,
         title: `صرف بونص الانتظام الأسبوعي (100 ج × ${weeklyResult.winners.length})`,
         amount: totalAmount,
         type: 'out',
         category: 'رواتب وأجور العمال',
         date: new Date().toISOString().split('T')[0],
         paymentMethod: 'cash',
-        receiptRef: `REG-WK-${selectedWeekStart}`,
+        receiptRef: expectedReceiptRef,
         party: `أول 4 عمال منتظمين: ${winnerNames}`,
         recordedBy: 'إدارة الموارد البشرية والمالية',
         notes: `صرف بونص الانتظام الأسبوعي للفترة من ${selectedWeekStart} إلى ${selectedWeekEnd} لعدم وجود أي تأخير أو خصومات.`,
       };
 
-      setExpenses((prev) => [newExpense, ...prev]);
+      setExpenses((prev) => [newExpense, ...prev.filter((e) => e.id !== newExpense.id && e.receiptRef !== expectedReceiptRef)]);
     }
 
-    setIsWeeklyDisbursed(true);
+    setLocalDisbursedWeeks((prev) => new Set(prev).add(selectedWeekStart));
     alert(`تم بنجاح اعتماد وصرف مبلغ ${totalAmount} ج.م في الخزينة وتوثيق الفائزين!`);
   };
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Worker, AttendanceLog } from '../types';
+import { generateUniqueId } from '../utils/idGenerator';
 
 interface AttendanceLogsProps {
   workers: Worker[];
@@ -60,7 +61,7 @@ export default function AttendanceLogs({
       } else {
         // If not present in today's log, create a permitted log entry
         const newLog: AttendanceLog = {
-          id: `LOG-${Date.now().toString().slice(-4)}`,
+          id: generateUniqueId('LOG'),
           workerId: excuseWorkerId,
           date: new Date().toISOString().split('T')[0],
           checkIn: '—',

@@ -183,9 +183,15 @@ class OfflineSyncManager {
       this.notify();
 
       const latest = queue[queue.length - 1];
+      const savedSession = typeof localStorage !== 'undefined' ? localStorage.getItem('smart_forge_active_session') : null;
+      const token = savedSession ? (JSON.parse(savedSession)?.token || '') : '';
+
       const res = await fetch('/api/db/migrate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(latest.payload),
       });
 

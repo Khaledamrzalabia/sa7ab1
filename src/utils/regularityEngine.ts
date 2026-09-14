@@ -81,9 +81,10 @@ export function calculateWorkerMonthlyRegularity(
     const thirdDelay = delays[2];
     if (thirdDelay.delayMinutes === 1) {
       status = 'deduct_50';
-      finalBonus = Math.max(0, baseBonus - 50);
-      deductionAmount = 50;
-      explanation = 'تأخير للمرة الثالثة لمدة دقيقة واحدة فقط - خصم 50 ج.م فقط بدلاً من الإلغاء';
+      const halfBonus = Math.round(baseBonus * 0.5);
+      finalBonus = Math.max(0, halfBonus - 50);
+      deductionAmount = baseBonus - finalBonus;
+      explanation = 'تأخير للمرة الثالثة لمدة دقيقة واحدة فقط - خصم 50 ج.م إضافية من نصف المكافأة بدلاً من الإلغاء الكامل';
     } else {
       status = 'canceled';
       finalBonus = 0;

@@ -6,9 +6,9 @@ import { Worker, AttendanceLog, UserSession } from '../types';
 interface QuickAttendanceTerminalProps {
   workers: Worker[];
   attendanceLogs: AttendanceLog[];
-  currentUser: UserSession;
-  onUpdateAttendance: (newLog: AttendanceLog, worker: Worker, feedbackMsg: string) => void;
-  onClose: () => void;
+  currentUser?: UserSession;
+  onUpdateAttendance?: (newLog: AttendanceLog, worker: Worker, feedbackMsg: string) => void;
+  onClose?: () => void;
   onOpenCard?: (worker: Worker) => void;
 }
 
@@ -20,6 +20,13 @@ export default function QuickAttendanceTerminal({
   onClose,
   onOpenCard,
 }: QuickAttendanceTerminalProps) {
+  const safeUser = currentUser || {
+    id: 'OWNER-01',
+    name: 'المدير العام',
+    roleTitle: 'المدير العام',
+    username: 'admin',
+    type: 'owner' as const,
+  };
   const [activeTab, setActiveTab] = useState<'numpad' | 'scanner' | 'quick_list'>('numpad');
   const [inputCode, setInputCode] = useState<string>('');
   const [selectedAction, setSelectedAction] = useState<'check_in' | 'check_out' | 'permission_exit' | 'permission_return'>('check_in');
@@ -209,8 +216,8 @@ export default function QuickAttendanceTerminal({
         deductionAmount: deductionAmount,
         status: delayMinutes > 5 ? 'late' : 'present',
         gate: gate,
-        recordedBy: `${currentUser.name} (${currentUser.roleTitle})`,
-        recordedById: currentUser.id,
+        recordedBy: `${safeUser.name} (${safeUser.roleTitle})`,
+        recordedById: safeUser.id,
         method: activeTab === 'scanner' ? 'qr' : 'manual_code',
       };
 
@@ -219,7 +226,7 @@ export default function QuickAttendanceTerminal({
           ? `تم توثيق الحضور بتأخير ${delayMinutes} دقيقة عن الوردية (${targetWorker.shiftStart}) - خصم ${deductionAmount} ج.م`
           : `حضور منضبط في موعد الوردية تماماً (${targetWorker.shiftStart})`;
 
-      onUpdateAttendance(newLog, targetWorker, msg);
+      if (onUpdateAttendance) onUpdateAttendance(newLog, targetWorker, msg);
       triggerSuccessFeedback(targetWorker.name, msg, delayMinutes > 5 ? 'warning' : 'success');
       setInputCode('');
     } else if (action === 'check_out') {
@@ -245,13 +252,13 @@ export default function QuickAttendanceTerminal({
         deductionAmount: existingLog?.deductionAmount || 0,
         status: existingLog?.status || 'present',
         gate: gate,
-        recordedBy: `${currentUser.name} (${currentUser.roleTitle})`,
-        recordedById: currentUser.id,
+        recordedBy: `${safeUser.name} (${safeUser.roleTitle})`,
+        recordedById: safeUser.id,
         method: activeTab === 'scanner' ? 'qr' : 'manual_code',
       };
 
       const msg = `تم توثيق بصمة الانصراف في تمام الساعة ${formattedTime} (ساعات العمل: ${calculatedHours} س)`;
-      onUpdateAttendance(newLog, targetWorker, msg);
+      if (onUpdateAttendance) onUpdateAttendance(newLog, targetWorker, msg);
       triggerSuccessFeedback(targetWorker.name, msg, 'info');
       setInputCode('');
     } else if (action === 'permission_exit') {
@@ -268,14 +275,14 @@ export default function QuickAttendanceTerminal({
         deductionAmount: existingLog?.deductionAmount || 0,
         status: 'permitted',
         gate: gate,
-        recordedBy: `${currentUser.name} (${currentUser.roleTitle})`,
-        recordedById: currentUser.id,
+        recordedBy: `${safeUser.name} (${safeUser.roleTitle})`,
+        recordedById: safeUser.id,
         method: activeTab === 'scanner' ? 'qr' : 'manual_code',
         middayExit: formattedTime,
       };
 
       const msg = `تم توثيق خروج إذن (${permissionType}) في تمام ${formattedTime}`;
-      onUpdateAttendance(newLog, targetWorker, msg);
+      if (onUpdateAttendance) onUpdateAttendance(newLog, targetWorker, msg);
       triggerSuccessFeedback(targetWorker.name, msg, 'warning');
       setInputCode('');
     } else if (action === 'permission_return') {
@@ -294,14 +301,14 @@ export default function QuickAttendanceTerminal({
         deductionAmount: existingLog?.deductionAmount || 0,
         status: 'present',
         gate: gate,
-        recordedBy: `${currentUser.name} (${currentUser.roleTitle})`,
-        recordedById: currentUser.id,
+        recordedBy: `${safeUser.name} (${safeUser.roleTitle})`,
+        recordedById: safeUser.id,
         method: activeTab === 'scanner' ? 'qr' : 'manual_code',
         middayReturn: formattedTime,
       };
 
       const msg = `تم توثيق عودة العامل للوردية في تمام ${formattedTime}`;
-      onUpdateAttendance(newLog, targetWorker, msg);
+      if (onUpdateAttendance) onUpdateAttendance(newLog, targetWorker, msg);
       triggerSuccessFeedback(targetWorker.name, msg, 'success');
       setInputCode('');
     }
@@ -501,7 +508,7 @@ export default function QuickAttendanceTerminal({
               <div className="text-right">
                 <span className="text-[9px] text-[#78716C] font-bold block">المشرف المسؤول:</span>
                 <span className="text-xs font-black text-[#1E293B] truncate max-w-[120px] block">
-                  {currentUser.name}
+                  {safeUser.name}
                 </span>
               </div>
             </div>

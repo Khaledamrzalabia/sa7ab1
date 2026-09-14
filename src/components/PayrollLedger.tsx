@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Worker, AttendanceLog, IncentivePenalty } from '../types';
+import { Worker, AttendanceLog, IncentivePenalty, Expense } from '../types';
 import { calculateWorkerMonthlyRegularity } from '../utils/regularityEngine';
+import { generateUniqueId } from '../utils/idGenerator';
 
 interface PayrollLedgerProps {
   workers: Worker[];
@@ -8,7 +9,8 @@ interface PayrollLedgerProps {
   attendanceLogs: AttendanceLog[];
   incentivePenalties: IncentivePenalty[];
   setIncentivePenalties?: React.Dispatch<React.SetStateAction<IncentivePenalty[]>>;
-  onDisbursePayroll?: (totalNetPayroll: number, workersCount: number, periodStr: string) => void;
+  expenses?: Expense[];
+  onDisbursePayroll?: (totalNetPayroll: number, workersCount: number, periodStr: string, payrollRef: string) => void;
 }
 
 export default function PayrollLedger({
@@ -17,16 +19,28 @@ export default function PayrollLedger({
   attendanceLogs,
   incentivePenalties,
   setIncentivePenalties,
+  expenses,
   onDisbursePayroll,
 }: PayrollLedgerProps) {
+  // Period Selection (Month & Year) for accurate monthly accounting
+  const now = new Date();
+  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth() + 1);
+
   // Search and Filter State
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending' | 'has_bonus' | 'has_penalty'>('all');
 
-  // Batch Approval State
-  const [isPayrollApproved, setIsPayrollApproved] = useState<boolean>(false);
+  // Batch Approval State with Idempotency check against actual expenses
+  const [localApprovedPeriod, setLocalApprovedPeriod] = useState<string | null>(null);
+  const currentPayrollRef = `PAYROLL-${selectedYear}-${selectedMonth}`;
+  const existingPayrollExpense = expenses?.find(
+    (e) => e.receiptRef === currentPayrollRef || e.id === `EXP-${currentPayrollRef}`
+  );
+  const isPayrollApproved = Boolean(existingPayrollExpense) || localApprovedPeriod === currentPayrollRef;
   const [approvedDate, setApprovedDate] = useState<string>('');
+  const effectiveApprovedDate = existingPayrollExpense?.date || approvedDate;
 
   // Individual Worker Payslip Modal State (مفردات المرتب)
   const [selectedWorkerForPayslip, setSelectedWorkerForPayslip] = useState<Worker | null>(null);
@@ -43,18 +57,26 @@ export default function PayrollLedger({
   const [quickItemNotes, setQuickItemNotes] = useState<string>('');
   const [quickItemDate, setQuickItemDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
+  // Active workers only
+  const activeWorkers = workers.filter((w) => !w.isArchived);
+
   // Batch Approve handler
   const handleApproveAllPayroll = () => {
-    setIsPayrollApproved(true);
+    if (isPayrollApproved) {
+      alert(`مسير رواتب هذا الشهر (${selectedMonth}/${selectedYear}) معتمد ومسجل مسبقاً في الخزينة العامة بقيمة ${existingPayrollExpense?.amount.toLocaleString()} ج.م.`);
+      return;
+    }
+
+    setLocalApprovedPeriod(currentPayrollRef);
     const today = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
     setApprovedDate(today);
-    // Mark all as approved
-    setIndividualApprovedIds(new Set(workers.map(w => w.id)));
+    // Mark active workers as approved
+    setIndividualApprovedIds(new Set(activeWorkers.map((w) => w.id)));
 
-    // Calculate total net payroll disbursed and reflect ONLY the net amount in company treasury
-    const totalNetDisbursed = workers.reduce((sum, w) => sum + getPayrollDetails(w).net, 0);
+    // Calculate total net payroll disbursed for active non-archived workers ONLY
+    const totalNetDisbursed = activeWorkers.reduce((sum, w) => sum + getPayrollDetails(w).net, 0);
     if (onDisbursePayroll && totalNetDisbursed > 0) {
-      onDisbursePayroll(totalNetDisbursed, workers.length, today);
+      onDisbursePayroll(totalNetDisbursed, activeWorkers.length, today, currentPayrollRef);
     }
   };
 
@@ -96,7 +118,7 @@ export default function PayrollLedger({
     }
 
     if (setIncentivePenalties) {
-      const newItemId = `IP-${Math.floor(1000 + Math.random() * 9000)}`;
+      const newItemId = generateUniqueId('IP');
       const newItem: IncentivePenalty = {
         id: newItemId,
         workerId: quickTargetWorker.id,
@@ -123,15 +145,18 @@ export default function PayrollLedger({
     }
   };
 
-  // Helper to compute individual worker payroll details
+  // Helper to compute individual worker payroll details for the selected period
   const getPayrollDetails = (worker: Worker) => {
     const base = Number(worker.baseSalary) || 0;
     const dailyRate = Number(worker.dailyRate) || (base > 0 ? base / 30 : 0);
     const allowances = Math.round(base * 0.10); // 10% standard transportation & meal allowance
 
-    // All approved & recorded bonuses from incentivePenalties list
+    const monthStr = selectedMonth < 10 ? `0${selectedMonth}` : `${selectedMonth}`;
+    const monthPrefix = `${selectedYear}-${monthStr}`;
+
+    // All approved & recorded bonuses from incentivePenalties list FOR THIS MONTH
     const workerIncentivesList = incentivePenalties.filter(
-      ip => ip.workerId === worker.id && ip.type === 'incentive'
+      ip => ip.workerId === worker.id && ip.type === 'incentive' && (ip.date ? ip.date.startsWith(monthPrefix) : true)
     );
     const moduleIncentivesTotal = workerIncentivesList.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 
@@ -140,23 +165,23 @@ export default function PayrollLedger({
     const directBonus = hasProfileIncentive ? 0 : (Number(worker.manualBonus) || 0);
 
     // Monthly Regularity Bonus (Calculated for previous month, disbursed on day 20)
-    const currentMonth = new Date().getMonth() + 1;
-    const currentYear = new Date().getFullYear();
-    const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
-    const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+    const prevMonth = selectedMonth === 1 ? 12 : selectedMonth - 1;
+    const prevYear = selectedMonth === 1 ? selectedYear - 1 : selectedYear;
     const regularity = calculateWorkerMonthlyRegularity(worker, attendanceLogs, prevYear, prevMonth);
     const regularityBonus = regularity.finalBonus;
 
     const totalIncentives = moduleIncentivesTotal + directBonus + regularityBonus;
 
-    // All approved & recorded penalties from incentivePenalties list
+    // All approved & recorded penalties from incentivePenalties list FOR THIS MONTH
     const workerPenaltiesList = incentivePenalties.filter(
-      ip => ip.workerId === worker.id && ip.type === 'penalty'
+      ip => ip.workerId === worker.id && ip.type === 'penalty' && (ip.date ? ip.date.startsWith(monthPrefix) : true)
     );
     const modulePenaltiesTotal = workerPenaltiesList.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 
-    // Attendance delay / absent deductions
-    const workerAttendanceLogs = attendanceLogs.filter(al => al.workerId === worker.id);
+    // Attendance delay / absent deductions FOR THIS MONTH ONLY
+    const workerAttendanceLogs = attendanceLogs.filter(
+      al => al.workerId === worker.id && (al.date ? al.date.startsWith(monthPrefix) : true)
+    );
     const attendanceDeductions = workerAttendanceLogs.reduce((sum, item) => sum + (Number(item.deductionAmount) || 0), 0);
     const totalLateMinutes = workerAttendanceLogs.reduce((sum, item) => sum + (item.delayMinutes || 0), 0);
     const daysAbsent = workerAttendanceLogs.filter(al => al.status === 'absent').length;
@@ -191,8 +216,8 @@ export default function PayrollLedger({
     };
   };
 
-  // Filter list
-  const filteredWorkers = workers.filter(worker => {
+  // Filter list (Active workers only)
+  const filteredWorkers = activeWorkers.filter((worker) => {
     const payroll = getPayrollDetails(worker);
     const matchesSearch =
       worker.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -224,7 +249,7 @@ export default function PayrollLedger({
   }, { base: 0, allowances: 0, incentives: 0, penalties: 0, net: 0 });
 
   // List of departments for filtering
-  const allDepartments = Array.from(new Set(workers.map(w => w.department).filter(Boolean)));
+  const allDepartments = Array.from(new Set(activeWorkers.map(w => w.department).filter(Boolean)));
 
   return (
     <div id="screen-payroll-ledger" className="flex flex-col gap-6 pb-12 w-full text-right">
@@ -245,8 +270,50 @@ export default function PayrollLedger({
           </div>
         </div>
 
-        {/* Release Action Controls */}
+        {/* Release Action Controls & Period Selector */}
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200">
+            <span className="text-xs font-bold text-slate-700 mr-1">شهر:</span>
+            <select
+              value={selectedMonth}
+              onChange={(e) => {
+                setSelectedMonth(Number(e.target.value));
+                setLocalApprovedPeriod(null);
+              }}
+              className="px-2.5 py-1.5 rounded-lg bg-white text-xs font-black text-slate-800 border border-slate-200 shadow-2xs outline-none"
+            >
+              {[
+                { m: 1, name: 'يناير (01)' },
+                { m: 2, name: 'فبراير (02)' },
+                { m: 3, name: 'مارس (03)' },
+                { m: 4, name: 'أبريل (04)' },
+                { m: 5, name: 'مايو (05)' },
+                { m: 6, name: 'يونيو (06)' },
+                { m: 7, name: 'يوليو (07)' },
+                { m: 8, name: 'أغسطس (08)' },
+                { m: 9, name: 'سبتمبر (09)' },
+                { m: 10, name: 'أكتوبر (10)' },
+                { m: 11, name: 'نوفمبر (11)' },
+                { m: 12, name: 'ديسمبر (12)' },
+              ].map(({ m, name }) => (
+                <option key={m} value={m}>{name}</option>
+              ))}
+            </select>
+
+            <select
+              value={selectedYear}
+              onChange={(e) => {
+                setSelectedYear(Number(e.target.value));
+                setLocalApprovedPeriod(null);
+              }}
+              className="px-2.5 py-1.5 rounded-lg bg-white text-xs font-black text-slate-800 border border-slate-200 shadow-2xs outline-none"
+            >
+              {[2024, 2025, 2026, 2027, 2028].map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+
           <button
             type="button"
             onClick={handleApproveAllPayroll}
@@ -254,11 +321,11 @@ export default function PayrollLedger({
             className={`px-5 py-2.5 rounded-xl text-xs font-black text-white shadow-sm transition-all flex items-center justify-center gap-2 ${
               isPayrollApproved
                 ? 'bg-[#006C4A] cursor-default'
-                : 'bg-[#0D9488] hover:bg-[#0A7368]'
+                : 'bg-[#0D9488] hover:bg-[#0A7368] cursor-pointer'
             }`}
           >
             <span className="material-symbols-outlined text-base">task_alt</span>
-            {isPayrollApproved ? 'تم اعتماد وصرف كشوف الرواتب للجميع' : 'اعتماد وصرف كشوف الرواتب للجميع'}
+            {isPayrollApproved ? 'تم اعتماد وصرف كشوف الرواتب' : 'اعتماد وصرف كشوف الرواتب'}
           </button>
         </div>
       </div>

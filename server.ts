@@ -1,6 +1,7 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { Pool } from 'pg';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
@@ -9,7 +10,92 @@ import { createClient } from '@supabase/supabase-js';
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
+
+// HMAC Stateless Session Management
+const SESSION_SECRET = process.env.SESSION_SECRET || 'smart-forge-secret-key-production-2026';
+
+interface TokenPayload {
+  id: string;
+  type: 'owner' | 'assistant';
+  username: string;
+  exp: number;
+}
+
+function createSignedToken(payload: { id: string; type: 'owner' | 'assistant'; username: string }): string {
+  const data: TokenPayload = {
+    ...payload,
+    exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60, // 7 days
+  };
+  const body = Buffer.from(JSON.stringify(data)).toString('base64url');
+  const signature = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
+  return `${body}.${signature}`;
+}
+
+function verifySignedToken(token: string | undefined): TokenPayload | null {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length === 2) {
+    const [body, signature] = parts;
+    const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
+    if (signature === expectedSig) {
+      try {
+        const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+          return null;
+        }
+        return payload;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  if (parts.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+        return null;
+      }
+      const isGM =
+        payload.email?.includes('admin') ||
+        payload.user_metadata?.role === 'owner' ||
+        payload.role === 'service_role';
+      return {
+        id: payload.sub || payload.id || 'user',
+        type: isGM ? 'owner' : 'assistant',
+        username: payload.email?.split('@')[0] || 'user',
+        exp: payload.exp,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (req.headers['x-auth-token'] as string);
+  const payload = verifySignedToken(token || undefined);
+  if (!payload) {
+    return res.status(401).json({ success: false, message: 'جلسة العمل غير صالحة أو منتهية. يرجى تسجيل الدخول مجدداً.' });
+  }
+  (req as any).user = payload;
+  next();
+}
+
+function requireOwner(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (req.headers['x-auth-token'] as string);
+  const payload = verifySignedToken(token || undefined);
+  if (!payload || payload.type !== 'owner') {
+    return res.status(403).json({ success: false, message: 'غير مصرح. هذه الصلاحية للمدير العام فقط.' });
+  }
+  (req as any).user = payload;
+  next();
+}
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -119,6 +205,7 @@ async function ensureGeneralManagerExists(pool: Pool) {
       }
     }
 
+    const adminPass = process.env.ADMIN_PASSWORD || '@Mm7677943@';
     await pool.query(`
       INSERT INTO public.assistants (
         id, name, username, phone, password, role_title, shift, gate_or_location, status, permissions, operations_count, notes
@@ -127,7 +214,7 @@ async function ensureGeneralManagerExists(pool: Pool) {
         'محمد صلاح',
         'admin',
         '01098452103',
-        'admin',
+        $1,
         'المدير العام (General Manager)',
         'الوردية الإدارية الشاملة',
         'الإدارة العليا',
@@ -139,7 +226,7 @@ async function ensureGeneralManagerExists(pool: Pool) {
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         role_title = EXCLUDED.role_title;
-    `);
+    `, [adminPass]);
   } catch (e: any) {
     console.warn('ensureGeneralManagerExists notification:', e.message);
   }
@@ -175,14 +262,17 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
             u.user_metadata?.role === 'owner' ||
             u.user_metadata?.is_general_manager;
 
+          const sessionType = isGM ? 'owner' : 'assistant';
+          const token = data.session?.access_token || createSignedToken({ id: u.id, type: sessionType, username: u.email?.split('@')[0] || 'admin' });
+
           const session = {
-            type: isGM ? 'owner' : 'assistant',
+            type: sessionType,
             id: u.id,
             name: u.user_metadata?.name || u.user_metadata?.full_name || 'محمد صلاح',
             username: u.email?.split('@')[0] || 'admin',
             phone: u.user_metadata?.phone || '',
             email: u.email,
-            token: data.session?.access_token,
+            token,
             roleTitle: isGM ? 'المدير العام (General Manager)' : (u.user_metadata?.role_title || 'مشرف وردية وتحضير'),
             permissions: u.user_metadata?.permissions || {
               canCheckIn: true,
@@ -194,7 +284,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
             },
           };
 
-          return res.json({ success: true, user: session, token: session.token });
+          return res.json({ success: true, user: session, token });
         } else if (error) {
           console.warn('Supabase Auth response:', error.message);
         }
@@ -226,17 +316,21 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
             (row.role_title || '').toLowerCase().includes('general manager') ||
             row.id === 'OWNER-01';
 
+          const sessionType = isGM ? 'owner' : 'assistant';
+          const token = createSignedToken({ id: row.id, type: sessionType, username: row.username });
+
           const session = {
-            type: isGM ? 'owner' : 'assistant',
+            type: sessionType,
             id: row.id,
             name: row.name,
             username: row.username,
             phone: row.phone,
             roleTitle: row.role_title,
+            token,
             permissions: typeof row.permissions === 'string' ? JSON.parse(row.permissions) : row.permissions,
           };
 
-          return res.json({ success: true, user: session });
+          return res.json({ success: true, user: session, token });
         } else {
           return res.status(401).json({ success: false, message: 'كلمة المرور غير صحيحة.' });
         }
@@ -248,12 +342,14 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
   // 3. Built-in Production Administrator Credentials (محمد صلاح)
   // Ensures admin can always access system to manage Supabase settings even prior to initial DB bootstrap
+  const adminPass = process.env.ADMIN_PASSWORD || '@Mm7677943@';
   const isOwner =
     trimmedId.toLowerCase() === 'admin' ||
     trimmedId === 'محمد صلاح' ||
     trimmedId === '01098452103';
 
-  if (isOwner && (trimmedPass === 'admin' || trimmedPass === '123456' || trimmedPass === 'Admin@2026')) {
+  if (isOwner && trimmedPass === adminPass) {
+    const token = createSignedToken({ id: 'OWNER-01', type: 'owner', username: 'admin' });
     const ownerSession = {
       type: 'owner',
       id: 'OWNER-01',
@@ -261,6 +357,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       username: 'admin',
       roleTitle: 'المدير العام (General Manager)',
       phone: '01098452103',
+      token,
       permissions: {
         canCheckIn: true,
         canCheckOut: true,
@@ -270,7 +367,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
         canPrintCards: true,
       },
     };
-    return res.json({ success: true, user: ownerSession });
+    return res.json({ success: true, user: ownerSession, token });
   }
 
   return res.status(401).json({
@@ -292,7 +389,7 @@ app.post('/api/auth/logout', async (req: Request, res: Response) => {
 // ============================================================================
 
 // Configure connection with separate URL/Password or complete URI from UI
-app.post('/api/db/configure', async (req: Request, res: Response) => {
+app.post('/api/db/configure', requireOwner, async (req: Request, res: Response) => {
   const { poolerUrl, connectionString, password, host, user, port, database } = req.body;
   const rawUrl = connectionString || poolerUrl;
 
@@ -403,7 +500,7 @@ app.post('/api/db/configure', async (req: Request, res: Response) => {
 });
 
 // Disconnect and switch back to local offline mode
-app.post('/api/db/disconnect', async (req: Request, res: Response) => {
+app.post('/api/db/disconnect', requireOwner, async (req: Request, res: Response) => {
   if (pgPool) {
     await pgPool.end().catch(() => {});
     pgPool = null;
@@ -505,7 +602,7 @@ app.get('/api/db/health', async (req: Request, res: Response) => {
 });
 
 // 2. Setup DDL Schema Execution directly
-app.post('/api/db/setup', async (req: Request, res: Response) => {
+app.post('/api/db/setup', requireOwner, async (req: Request, res: Response) => {
   const pool = getDbPool();
   if (!pool) {
     return res.status(400).json({ success: false, message: 'DATABASE_URL غير مهيأ' });
@@ -531,7 +628,7 @@ app.post('/api/db/setup', async (req: Request, res: Response) => {
 });
 
 // 3. Get entire application state from PostgreSQL
-app.get('/api/db/state', async (req: Request, res: Response) => {
+app.get('/api/db/state', requireAuth, async (req: Request, res: Response) => {
   const pool = getDbPool();
   if (!pool || isDbAuthFailing) {
     return res.json({
@@ -605,6 +702,7 @@ app.get('/api/db/state', async (req: Request, res: Response) => {
             bonusNotes: r.bonus_notes ?? r.bonusNotes ?? '',
             manualBonus: Number(r.manual_bonus ?? r.manualBonus ?? 0),
             hasBonus: Boolean(r.has_bonus ?? r.hasBonus ?? false),
+            monthlyRegularityBonus: Number(r.monthly_regularity_bonus ?? r.monthlyRegularityBonus ?? 500),
             isArchived: Boolean(r.is_archived ?? r.isArchived ?? false),
           };
         }),
@@ -613,7 +711,7 @@ app.get('/api/db/state', async (req: Request, res: Response) => {
           name: r.name ?? '',
           username: r.username ?? '',
           phone: r.phone ?? '',
-          password: r.password ?? '123456',
+          password: '',
           roleTitle: r.role_title ?? r.roleTitle ?? 'مشرف وردية وتحضير',
           shift: r.shift ?? 'الوردية الصباحية (08:00 ص - 04:00 م)',
           gateOrLocation: r.gate_or_location ?? r.gateOrLocation ?? '',
@@ -778,7 +876,7 @@ app.get('/api/db/state', async (req: Request, res: Response) => {
 });
 
 // 4. Bulk Migrate / Push state to PostgreSQL
-app.post('/api/db/migrate', async (req: Request, res: Response) => {
+app.post('/api/db/migrate', requireAuth, async (req: Request, res: Response) => {
   const pool = getDbPool();
   if (!pool || isDbAuthFailing) {
     return res.json({
@@ -812,14 +910,15 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
     // 1. Workers
     for (const w of workers) {
       await client.query(
-        `INSERT INTO public.workers (id, short_code, name, role, national_id, department, line, base_salary, daily_rate, hourly_rate, minute_rate, shift_start, shift_end, status, notes, discount_notes, manual_discount, has_discount, bonus_notes, manual_bonus, has_bonus, is_archived)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+        `INSERT INTO public.workers (id, short_code, name, role, national_id, department, line, base_salary, daily_rate, hourly_rate, minute_rate, shift_start, shift_end, status, notes, discount_notes, manual_discount, has_discount, bonus_notes, manual_bonus, has_bonus, monthly_regularity_bonus, is_archived)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
          ON CONFLICT (id) DO UPDATE SET
            short_code = EXCLUDED.short_code,
            name = EXCLUDED.name,
            role = EXCLUDED.role,
            base_salary = EXCLUDED.base_salary,
            minute_rate = EXCLUDED.minute_rate,
+           monthly_regularity_bonus = EXCLUDED.monthly_regularity_bonus,
            status = EXCLUDED.status,
            is_archived = EXCLUDED.is_archived`,
         [
@@ -830,20 +929,21 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           w.nationalId || w.national_id,
           w.department,
           w.line,
-          w.baseSalary || w.base_salary || 0,
-          w.dailyRate || w.daily_rate || 0,
-          w.hourlyRate || w.hourly_rate || 0,
-          w.minuteRate || w.minute_rate || 0,
+          w.baseSalary ?? w.base_salary ?? 0,
+          w.dailyRate ?? w.daily_rate ?? 0,
+          w.hourlyRate ?? w.hourly_rate ?? 0,
+          w.minuteRate ?? w.minute_rate ?? 0,
           w.shiftStart || w.shift_start || '08:00 ص',
           w.shiftEnd || w.shift_end || '04:00 م',
           w.status || 'active',
           w.notes || '',
           w.discountNotes || w.discount_notes || '',
-          w.manualDiscount || w.manual_discount || 0,
+          w.manualDiscount ?? w.manual_discount ?? 0,
           Boolean(w.hasDiscount || w.has_discount),
           w.bonusNotes || w.bonus_notes || '',
-          w.manualBonus || w.manual_bonus || 0,
+          w.manualBonus ?? w.manual_bonus ?? 0,
           Boolean(w.hasBonus || w.has_bonus),
+          w.monthlyRegularityBonus ?? w.monthly_regularity_bonus ?? 500,
           Boolean(w.isArchived || w.is_archived),
         ]
       );
@@ -857,8 +957,13 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            phone = EXCLUDED.phone,
+           role_title = EXCLUDED.role_title,
+           shift = EXCLUDED.shift,
+           gate_or_location = EXCLUDED.gate_or_location,
            permissions = EXCLUDED.permissions,
-           status = EXCLUDED.status`,
+           status = EXCLUDED.status,
+           password = CASE WHEN EXCLUDED.password IS NOT NULL AND EXCLUDED.password != '' AND EXCLUDED.password != '123' THEN EXCLUDED.password ELSE public.assistants.password END,
+           notes = EXCLUDED.notes`,
         [
           a.id,
           a.name,
@@ -870,7 +975,7 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           a.gateOrLocation || a.gate_or_location,
           a.status || 'active',
           JSON.stringify(a.permissions || {}),
-          a.operationsCount || a.operations_count || 0,
+          a.operationsCount ?? a.operations_count ?? 0,
           a.notes || '',
         ]
       );
@@ -897,14 +1002,14 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           c.phone,
           c.category,
           c.commercialReg || c.commercial_reg || '',
-          c.ordersCount || c.orders_count || 0,
-          c.totalDeal || c.total_deal || 0,
-          c.paidAmount || c.paid_amount || 0,
-          c.dueAmount || c.due_amount || 0,
-          c.creditLimit || c.credit_limit || 0,
+          c.ordersCount ?? c.orders_count ?? 0,
+          c.totalDeal ?? c.total_deal ?? 0,
+          c.paidAmount ?? c.paid_amount ?? 0,
+          c.dueAmount ?? c.due_amount ?? 0,
+          c.creditLimit ?? c.credit_limit ?? 0,
           c.paymentTerms || c.payment_terms || 'سداد نقدي',
           c.status || 'active-regular',
-          c.loansBalance || c.loans_balance || 0,
+          c.loansBalance ?? c.loans_balance ?? 0,
         ]
       );
     }
@@ -925,8 +1030,8 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           inv.date,
           inv.time || null,
           inv.description || '',
-          inv.amount || 0,
-          inv.paid || 0,
+          inv.amount ?? 0,
+          inv.paid ?? 0,
           inv.status || 'unpaid',
           inv.type || 'outgoing',
           inv.companyName || inv.company_name || null,
@@ -951,7 +1056,7 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           pv.customerId || pv.customer_id,
           pv.date,
           pv.time || null,
-          pv.amount || 0,
+          pv.amount ?? 0,
           pv.method || 'نقدي',
           pv.invoiceId || pv.invoice_id || null,
         ]
@@ -976,10 +1081,10 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           p.phone,
           p.nationalId || p.national_id || null,
           p.roleTitle || p.role_title,
-          p.capital || 0,
-          p.sharePercentage || p.share_percentage || 0,
+          p.capital ?? 0,
+          p.sharePercentage ?? p.share_percentage ?? 0,
           p.joinDate || p.join_date,
-          p.totalProfitsWithdrawn || p.total_profits_withdrawn || 0,
+          p.totalProfitsWithdrawn ?? p.total_profits_withdrawn ?? 0,
           p.status || 'active',
           p.notes || '',
         ]
@@ -1001,7 +1106,7 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           po.partnerId || po.partner_id,
           po.partnerName || po.partner_name || 'شريك',
           po.date,
-          po.amount || 0,
+          po.amount ?? 0,
           po.period || 'الربع الحالي',
           po.paymentMethod || po.payment_method || 'نقدي',
           po.notes || '',
@@ -1026,11 +1131,11 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           att.date,
           att.checkIn || att.check_in || null,
           att.checkOut || att.check_out || null,
-          att.delayMinutes || att.delay_minutes || 0,
+          att.delayMinutes ?? att.delay_minutes ?? 0,
           att.permitType || att.permit_type || null,
           Boolean(att.isPermitted || att.is_permitted),
-          att.workedHours || att.worked_hours || 0,
-          att.deductionAmount || att.deduction_amount || 0,
+          att.workedHours ?? att.worked_hours ?? 0,
+          att.deductionAmount ?? att.deduction_amount ?? 0,
           att.status || 'present',
           att.gate || 'بوابة أفراد (أ)',
           att.recordedBy || att.recorded_by || null,
@@ -1038,7 +1143,7 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           att.method || 'qr',
           att.middayExit || att.midday_exit || null,
           att.middayReturn || att.midday_return || null,
-          att.middayMinutes || att.midday_minutes || 0,
+          att.middayMinutes ?? att.midday_minutes ?? 0,
           att.notes || '',
         ]
       );
@@ -1063,9 +1168,9 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           ip.workerId || ip.worker_id,
           ip.type || 'incentive',
           ip.category || 'مكافأة تميز',
-          ip.amount || 0,
+          ip.amount ?? 0,
           ip.calcMode || ip.calc_mode || 'fixed',
-          ip.calcValue || ip.calc_value || 0,
+          ip.calcValue ?? ip.calc_value ?? 0,
           ip.notes || '',
           ip.date || new Date().toISOString().split('T')[0],
           ip.status || 'approved-added',
@@ -1092,7 +1197,7 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           exp.type || 'out',
           exp.category,
           exp.title,
-          exp.amount || 0,
+          exp.amount ?? 0,
           exp.date,
           exp.time || null,
           exp.paymentMethod || exp.payment_method || 'cash',
@@ -1123,7 +1228,7 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           ch.id,
           ch.title,
           ch.category,
-          ch.amount || 0,
+          ch.amount ?? 0,
           ch.date,
           ch.time || null,
           ch.beneficiary,
@@ -1150,7 +1255,7 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
           cl.date,
           cl.time || null,
           cl.type || 'lend',
-          cl.amount || 0,
+          cl.amount ?? 0,
           cl.notes || '',
         ]
       );
@@ -1186,7 +1291,7 @@ app.post('/api/db/migrate', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/db/clear', async (req: Request, res: Response) => {
+app.post('/api/db/clear', requireOwner, async (req: Request, res: Response) => {
   const confirmKey = req.headers['x-admin-key'] || req.body?.confirmKey;
   if (confirmKey !== 'SAHAB_FACTORY_CONFIRM_CLEAR_2026') {
     return res.status(403).json({
@@ -1222,9 +1327,10 @@ app.post('/api/db/clear', async (req: Request, res: Response) => {
       await client.query(`TRUNCATE TABLE public.${t} CASCADE`);
     }
     await client.query('COMMIT');
+    await ensureGeneralManagerExists(pool);
     return res.json({
       success: true,
-      message: 'تم تصفير كافة الجداول في قاعدة بيانات Supabase بنجاح (0 سجلات).',
+      message: 'تم تصفير كافة الجداول في قاعدة بيانات Supabase بنجاح (0 سجلات تجريبية) مع الحفاظ على حساب المدير العام.',
     });
   } catch (err: any) {
     if (client) {
@@ -1256,9 +1362,23 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`SAHAB ERP Server running on http://0.0.0.0:${PORT}`);
-  });
+  const startListen = (port: number) => {
+    const server = app.listen(port, '0.0.0.0', () => {
+      console.log(`SAHAB ERP Server running on http://0.0.0.0:${port}`);
+    });
+
+    server.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        const nextPort = port === 3000 ? 48200 : port + 1;
+        console.warn(`Port ${port} is already in use, trying port ${nextPort}...`);
+        startListen(nextPort);
+      } else {
+        console.error('Server listen error:', err);
+      }
+    });
+  };
+
+  startListen(PORT);
 }
 
 startServer();

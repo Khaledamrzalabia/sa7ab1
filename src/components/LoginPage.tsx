@@ -3,7 +3,7 @@ import { Assistant, UserSession } from '../types';
 import { authService } from '../services/authService';
 
 interface LoginPageProps {
-  assistants: Assistant[];
+  assistants?: Assistant[];
   onLoginSuccess: (session: UserSession) => void;
 }
 

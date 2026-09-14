@@ -50,7 +50,7 @@ import {
 } from './data';
 
 const STORAGE_KEYS = {
-  CLEAN_V4: 'sahab_erp_clean_zero_production_v4',
+  CLEAN_V5: 'sahab_erp_clean_zero_production_v5',
   WORKERS: 'smart_forge_workers',
   LOGS: 'smart_forge_attendance_logs',
   INCENTIVES: 'smart_forge_incentives_penalties',
@@ -93,13 +93,14 @@ function normalizeWorker(w: any): Worker {
     bonusNotes: w.bonusNotes ?? w.bonus_notes ?? '',
     manualBonus: Number(w.manualBonus ?? w.manual_bonus ?? 0),
     hasBonus: Boolean(w.hasBonus ?? w.has_bonus ?? false),
+    monthlyRegularityBonus: Number(w.monthlyRegularityBonus ?? w.monthly_regularity_bonus ?? 500),
     isArchived: Boolean(w.isArchived ?? w.is_archived ?? false),
   };
 }
 
-// Check if localStorage needs to be cleared of old mock numbers
+// Complete Zero-Reset: Wipe all leftover test/demo records from localStorage
 if (typeof window !== 'undefined') {
-  if (localStorage.getItem(STORAGE_KEYS.CLEAN_V4) !== 'true') {
+  if (localStorage.getItem(STORAGE_KEYS.CLEAN_V5) !== 'true') {
     localStorage.removeItem(STORAGE_KEYS.WORKERS);
     localStorage.removeItem(STORAGE_KEYS.LOGS);
     localStorage.removeItem(STORAGE_KEYS.INCENTIVES);
@@ -111,7 +112,8 @@ if (typeof window !== 'undefined') {
     localStorage.removeItem(STORAGE_KEYS.EXPENSES);
     localStorage.removeItem(STORAGE_KEYS.CHARITIES);
     localStorage.removeItem(STORAGE_KEYS.ASSISTANTS);
-    localStorage.setItem(STORAGE_KEYS.CLEAN_V4, 'true');
+    localStorage.removeItem(STORAGE_KEYS.LOANS);
+    localStorage.setItem(STORAGE_KEYS.CLEAN_V5, 'true');
   }
 }
 
@@ -231,7 +233,12 @@ export default function App() {
     const fetchDatabaseState = async () => {
       try {
         setDbLoading(true);
-        const res = await fetch('/api/db/state');
+        const savedSession = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.SESSION) : null;
+        const token = savedSession ? (JSON.parse(savedSession)?.token || '') : (currentUser?.token || '');
+
+        const res = await fetch('/api/db/state', {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        });
         if (res.ok) {
           const json = await res.json();
           if (json.success && json.data) {
@@ -354,9 +361,15 @@ export default function App() {
       try {
         setIsSaving(true);
         syncManager.setSyncing(true);
+        const savedSession = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.SESSION) : null;
+        const token = savedSession ? (JSON.parse(savedSession)?.token || '') : (currentUser?.token || '');
+
         const res = await fetch('/api/db/migrate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify(payload),
         });
         const data = await res.json();
@@ -498,13 +511,27 @@ export default function App() {
     setIsLoggedIn(false);
   };
 
-  // Handler to record actual disbursed net payroll as official company expense
-  const handleDisbursePayroll = (totalNetPayroll: number, workersCount: number, periodStr?: string) => {
+  // Handler to record actual disbursed net payroll as official company expense with Idempotency Guard
+  const handleDisbursePayroll = (
+    totalNetPayroll: number,
+    workersCount: number,
+    periodStr?: string,
+    payrollRef?: string
+  ) => {
     if (totalNetPayroll <= 0) return;
     const now = new Date();
     const period = periodStr || now.toLocaleDateString('ar-EG', { year: 'numeric', month: 'long' });
+    const receiptRef = payrollRef || `PAYROLL-${now.getFullYear()}-${now.getMonth() + 1}`;
+    const expId = `EXP-${receiptRef}`;
+
+    // Prevent duplicate entries in expenses
+    if (expenses.some((e) => e.receiptRef === receiptRef || e.id === expId)) {
+      alert(`مسير رواتب الفترة (${receiptRef}) مسجل مسبقاً في الخزينة. تم منع تكرار القيد المحاسبي.`);
+      return;
+    }
+
     const newExpense: Expense = {
-      id: `EXP-PAYROLL-${Date.now()}`,
+      id: expId,
       type: 'out',
       category: 'رواتب وأجور العمال',
       title: `صرف صافي مسير رواتب شهر (${period}) - عدد ${workersCount} عامل معتمد`,
@@ -512,12 +539,12 @@ export default function App() {
       date: now.toISOString().split('T')[0],
       time: now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true }),
       paymentMethod: 'cash',
-      receiptRef: `PAYROLL-${now.getFullYear()}-${now.getMonth() + 1}`,
+      receiptRef: receiptRef,
       party: 'عمال وكوادر المصنع المعتمدين',
       notes: `تم الصرف الفعلي للصافي من خزينة المصنع بعد استنزال كافة الخصومات والتأخيرات وإضافة الحوافز.`,
       recordedBy: `${currentUser.name} (${currentUser.roleTitle})`,
     };
-    setExpenses((prev) => [newExpense, ...prev]);
+    setExpenses((prev) => [newExpense, ...prev.filter((e) => e.id !== expId && e.receiptRef !== receiptRef)]);
   };
 
   // Full Database State Snapshot Bundle for Backups
@@ -548,6 +575,30 @@ export default function App() {
 
   // Screen Switchboard
   const renderActiveScreen = () => {
+    // Role-based access protection: restricted screens for owner only
+    const isOwner = currentUser?.type === 'owner';
+    const restrictedScreens = ['assistants', 'partnership', 'expenses', 'charity', 'payroll'];
+    if (!isOwner && restrictedScreens.includes(currentScreen)) {
+      return (
+        <div className="flex flex-col items-center justify-center p-12 bg-white rounded-3xl border border-rose-200 shadow-sm text-center font-readex my-8">
+          <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mb-4 shadow-sm">
+            <span className="material-symbols-outlined text-3xl">lock</span>
+          </div>
+          <h3 className="text-lg font-black text-slate-900 mb-2">هذه الشاشة مخصصة للمدير العام فقط</h3>
+          <p className="text-xs text-slate-500 font-bold mb-6 max-w-md leading-relaxed">
+            حسابك الحالي مسجل بصفة ({currentUser?.roleTitle || 'مشرف وردية'}). للاطلاع على العمليات المالية والرواتب والشراكة، يرجى تسجيل الدخول بحساب المدير العام.
+          </p>
+          <button
+            type="button"
+            onClick={() => handleNavigate('operations-dashboard')}
+            className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-all cursor-pointer shadow-sm"
+          >
+            العودة للوحة التشغيل والعمليات
+          </button>
+        </div>
+      );
+    }
+
     switch (currentScreen) {
       case 'operations-dashboard':
         return (
@@ -619,6 +670,7 @@ export default function App() {
             attendanceLogs={attendanceLogs}
             incentivePenalties={incentivePenalties}
             setIncentivePenalties={setIncentivePenalties}
+            expenses={expenses}
             onDisbursePayroll={handleDisbursePayroll}
           />
         );

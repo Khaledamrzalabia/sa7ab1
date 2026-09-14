@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Worker, IncentivePenalty } from '../types';
+import { generateUniqueId } from '../utils/idGenerator';
 
 interface IncentivesPenaltiesProps {
   workers: Worker[];
@@ -14,6 +15,13 @@ export default function IncentivesPenalties({
 }: IncentivesPenaltiesProps) {
   // Local state for the decision form
   const [selectedWorkerId, setSelectedWorkerId] = useState<string>(workers[0]?.id || '');
+
+  React.useEffect(() => {
+    if ((!selectedWorkerId || !workers.some(w => w.id === selectedWorkerId)) && workers.length > 0) {
+      setSelectedWorkerId(workers[0].id);
+    }
+  }, [workers, selectedWorkerId]);
+
   const [decisionType, setDecisionType] = useState<'incentive' | 'penalty'>('incentive');
   const [category, setCategory] = useState<string>('حافز إنتاج إضافي');
   const [calcMode, setCalcMode] = useState<'fixed' | 'days' | 'hours'>('fixed');
@@ -24,19 +32,24 @@ export default function IncentivesPenalties({
 
   // Search and filter state
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'incentive' | 'penalty'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved-added' | 'cancelled'>('all');
 
-  // Calculate dynamic rates for selected worker
-  const currentWorker = workers.find(w => w.id === selectedWorkerId);
+  // Selected worker details
+  const selectedWorker = workers.find((w) => w.id === selectedWorkerId);
+
+  // Dynamic calculation based on mode
   const calculatedAmount = (() => {
     if (calcMode === 'fixed') return customAmount;
-    if (!currentWorker) return 0;
+    if (!selectedWorker) return 0;
+
+    const dailyRate = selectedWorker.dailyRate || 0;
+    const hourlyRate = selectedWorker.hourlyRate || 0;
+
     if (calcMode === 'days') {
-      const dailyRate = currentWorker.baseSalary / 30;
       return Math.round(dailyRate * calcValue);
     }
     if (calcMode === 'hours') {
-      const hourlyRate = currentWorker.baseSalary / 240;
       return Math.round(hourlyRate * calcValue);
     }
     return 0;
@@ -48,7 +61,7 @@ export default function IncentivesPenalties({
     if (!selectedWorkerId) return;
 
     const newDecision: IncentivePenalty = {
-      id: `IP-${String(incentivePenalties.length + 1).padStart(2, '0')}`,
+      id: generateUniqueId('IP'),
       workerId: selectedWorkerId,
       type: decisionType,
       category: category,
@@ -219,9 +232,13 @@ export default function IncentivesPenalties({
                 className="p-2.5 rounded-xl border border-[#D6CEBF] bg-[#FAF9F5] text-xs font-bold text-[#1E293B] focus:ring-2 focus:ring-[#0D9488]"
                 required
               >
-                {workers.map(w => (
-                  <option key={w.id} value={w.id}>{w.name} - {w.role}</option>
-                ))}
+                {workers.length === 0 ? (
+                  <option value="">-- يرجى إضافة عمال أولاً من قسم الكوادر --</option>
+                ) : (
+                  workers.map(w => (
+                    <option key={w.id} value={w.id}>{w.name} - {w.role}</option>
+                  ))
+                )}
               </select>
             </div>
 
@@ -327,10 +344,10 @@ export default function IncentivesPenalties({
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-base text-[#D97706]">lock</span>
               <div>
-                <span>حسبة لحظية: {currentWorker?.name} (الراتب الأساسي التعاقدي الثابت: {currentWorker?.baseSalary?.toLocaleString()} ج.م)</span>
+                <span>حسبة لحظية: {selectedWorker?.name} (الراتب الأساسي التعاقدي الثابت: {selectedWorker?.baseSalary?.toLocaleString()} ج.م)</span>
                 <p className="text-[10px] text-[#92400E] mt-0.5">
-                  {calcMode === 'days' && `معدل اليوم التعاقدي = ${Math.round(currentWorker!.baseSalary / 30)} ج.م (الحسبة لـ ${calcValue} يوم)`}
-                  {calcMode === 'hours' && `معدل الساعة التعاقدي = ${Math.round(currentWorker!.baseSalary / 240)} ج.م (الحسبة لـ ${calcValue} ساعة)`}
+                  {calcMode === 'days' && `معدل اليوم التعاقدي = ${Math.round(selectedWorker?.dailyRate || (selectedWorker?.baseSalary ? selectedWorker.baseSalary / 26 : 0))} ج.م (الحسبة لـ ${calcValue} يوم)`}
+                  {calcMode === 'hours' && `معدل الساعة التعاقدي = ${Math.round(selectedWorker?.hourlyRate || (selectedWorker?.baseSalary ? selectedWorker.baseSalary / (26 * 8) : 0))} ج.م (الحسبة لـ ${calcValue} ساعة)`}
                   {calcMode === 'fixed' && `مبلغ مقطوع مضاف/مخصوم بشكل منفصل`}
                   <span className="block text-[#047857] font-bold mt-0.5">
                     ✓ الراتب الأساسي ثابت ولا يتغير، ويضاف هذا البند تلقائياً إلى كشف مسير الرواتب في خانة {decisionType === 'incentive' ? 'المكافآت المتعددة' : 'الاستقطاعات المتعددة'}.

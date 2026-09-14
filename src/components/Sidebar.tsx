@@ -102,6 +102,10 @@ export default function Sidebar({
     },
   ];
 
+  const isOwner = currentUser?.type === 'owner';
+  const ownerOnlyIds = new Set(['assistants', 'payroll', 'partnership', 'expenses', 'charity']);
+  const visibleMenuItems = isOwner ? menuItems : menuItems.filter(item => !ownerOnlyIds.has(item.id));
+
   return (
     <>
       {/* Mobile Backdrop Overlay */}
@@ -168,7 +172,7 @@ export default function Sidebar({
 
           {/* Navigation Flow Anchor Elements */}
           <nav className="flex flex-col gap-1.5">
-            {menuItems.map((item) => {
+            {visibleMenuItems.map((item) => {
               const isActive = currentScreen === item.id;
               
               return (
@@ -210,8 +214,8 @@ export default function Sidebar({
 
       {/* Footer Info & Logged in User Bar */}
       <div className="flex flex-col gap-2 pt-3 border-t border-slate-100">
-        {/* Database Backup Trigger */}
-        {onOpenBackupModal && (
+        {/* Database Backup Trigger (Owner only) */}
+        {isOwner && onOpenBackupModal && (
           <button
             type="button"
             onClick={onOpenBackupModal}

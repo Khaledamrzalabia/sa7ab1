@@ -136,12 +136,23 @@ export default function BackupModal({
 
   if (!isOpen) return null;
 
+  const getAuthToken = () => {
+    return currentUser?.token || (typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('smart_forge_auth_session') || '{}')?.token : '');
+  };
+
   // Disconnect from Supabase and use clean offline local mode
   const handleDisconnect = async () => {
     setIsConnecting(true);
     setSyncStatus({ loading: true, message: 'جارٍ إيقاف الربط السحابي والتحويل للوضع المحلي...' });
     try {
-      const res = await fetch('/api/db/disconnect', { method: 'POST' });
+      const token = getAuthToken();
+      const res = await fetch('/api/db/disconnect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
       const json = await res.json();
       setIsDbConnected(false);
       setTableStats(null);
@@ -179,9 +190,13 @@ export default function BackupModal({
         body.anonKey = anonKey.trim();
       }
 
+      const token = getAuthToken();
       const res = await fetch('/api/db/configure', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(body),
       });
       const json = await res.json();
@@ -221,7 +236,14 @@ export default function BackupModal({
     setIsExecutingSetup(true);
     setSyncStatus({ loading: true, message: 'جارٍ تطبيق السكيما وإنشاء الجداول الـ 11 في Supabase...' });
     try {
-      const res = await fetch('/api/db/setup', { method: 'POST' });
+      const token = getAuthToken();
+      const res = await fetch('/api/db/setup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
       const json = await res.json();
       if (json.success) {
         setSyncStatus({
@@ -297,11 +319,13 @@ export default function BackupModal({
     setSyncStatus({ loading: true, message: 'جارٍ تصفير وفرمطة كافة الجداول في قاعدة بيانات Supabase...' });
 
     try {
+      const token = getAuthToken();
       const res = await fetch('/api/db/clear', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-sahab-confirm-clear': 'SAHAB_FACTORY_CONFIRM_CLEAR_2026',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ confirmKey: 'SAHAB_FACTORY_CONFIRM_CLEAR_2026' }),
       });

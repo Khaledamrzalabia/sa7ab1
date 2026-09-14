@@ -6,6 +6,7 @@ import {
   calculateWeeklyRegularity,
   getCurrentWeekRange,
 } from '../utils/regularityEngine';
+import { generateUniqueId } from '../utils/idGenerator';
 
 interface EmployeesManagementProps {
   workers: Worker[];
@@ -148,7 +149,7 @@ export default function EmployeesManagement({
       }));
     } else {
       // Create new worker
-      const newId = `EMP-${Date.now().toString().slice(-4)}`;
+      const newId = generateUniqueId('EMP');
       const newWorker: Worker = {
         id: newId,
         name: name.trim(),
@@ -172,7 +173,7 @@ export default function EmployeesManagement({
         bonusNotes: ''
       };
 
-      setWorkers([newWorker, ...workers]);
+      setWorkers(prev => [newWorker, ...prev]);
     }
 
     setIsFormModalOpen(false);
@@ -271,7 +272,7 @@ export default function EmployeesManagement({
     } else if (actionType === 'bonus') {
       if (actionAmount > 0 && setIncentivePenalties) {
         const newInc: IncentivePenalty = {
-          id: `IP-${Date.now().toString().slice(-4)}`,
+          id: generateUniqueId('IP'),
           workerId: actionModalWorker.id,
           type: 'incentive',
           category: actionReason.trim() || 'مكافأة إنتاج وبونص',
@@ -302,7 +303,7 @@ export default function EmployeesManagement({
     } else if (actionType === 'penalty') {
       if (actionAmount > 0 && setIncentivePenalties) {
         const newPen: IncentivePenalty = {
-          id: `IP-${Date.now().toString().slice(-4)}`,
+          id: generateUniqueId('IP'),
           workerId: actionModalWorker.id,
           type: 'penalty',
           category: penaltyMode === 'minutes' ? 'خصم دقائق تأخير' : penaltyMode === 'days' ? 'خصم أيام عمل' : (actionReason.trim() || 'خصم جزاء إداري'),

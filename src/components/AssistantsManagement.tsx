@@ -3,10 +3,10 @@ import { Assistant, AssistantPermissions, UserSession } from '../types';
 
 interface AssistantsManagementProps {
   assistants: Assistant[];
-  onAddAssistant: (assistant: Assistant) => void;
-  onUpdateAssistant: (assistant: Assistant) => void;
-  onDeleteAssistant: (id: string) => void;
-  currentUser: UserSession;
+  onAddAssistant?: (assistant: Assistant) => void;
+  onUpdateAssistant?: (assistant: Assistant) => void;
+  onDeleteAssistant?: (id: string) => void;
+  currentUser?: UserSession;
   onOpenTerminal?: () => void;
 }
 
@@ -18,6 +18,13 @@ export default function AssistantsManagement({
   currentUser,
   onOpenTerminal
 }: AssistantsManagementProps) {
+  const safeUser = currentUser || {
+    id: 'OWNER-01',
+    name: 'المدير العام',
+    roleTitle: 'المدير العام',
+    username: 'admin',
+    type: 'owner' as const,
+  };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAssistant, setEditingAssistant] = useState<Assistant | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -221,8 +228,8 @@ export default function AssistantsManagement({
         <div className="p-5 bg-white rounded-2xl border border-[#EBE3D8] shadow-xs flex items-center justify-between">
           <div>
             <span className="text-xs font-bold text-[#78716C] block mb-1">المستخدم الحالي المسجل</span>
-            <span className="text-base font-black text-[#1E293B] truncate block max-w-[170px]">{currentUser.name}</span>
-            <span className="text-[10px] font-bold text-[#C2410C] block mt-1">{currentUser.roleTitle}</span>
+            <span className="text-base font-black text-[#1E293B] truncate block max-w-[170px]">{safeUser.name}</span>
+            <span className="text-[10px] font-bold text-[#C2410C] block mt-1">{safeUser.roleTitle}</span>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-[#FFFBEB] text-[#B45309] flex items-center justify-center">
             <span className="material-symbols-outlined text-2xl">badge</span>
@@ -262,7 +269,7 @@ export default function AssistantsManagement({
       {/* Assistants Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredAssistants.map((assistant) => {
-          const isCurrent = currentUser.id === assistant.id;
+          const isCurrent = safeUser.id === assistant.id;
 
           return (
             <div

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Partner, PartnerPayout } from '../types';
 import { calculatePartnerShares } from '../data';
+import { generateUniqueId } from '../utils/idGenerator';
 
 interface PartnershipManagementProps {
   partners: Partner[];
@@ -113,7 +114,7 @@ export default function PartnershipManagement({
     } else {
       // Add New
       const newPartner: Omit<Partner, 'sharePercentage'> = {
-        id: `PRT-${Date.now().toString().slice(-4)}`,
+        id: generateUniqueId('PRT'),
         name: formName.trim(),
         phone: formPhone.trim(),
         nationalId: formNationalId.trim(),
@@ -124,7 +125,7 @@ export default function PartnershipManagement({
         status: formStatus,
         notes: formNotes.trim()
       };
-      setPartners(calculatePartnerShares([...partners, newPartner as any]));
+      setPartners(prev => calculatePartnerShares([...prev, newPartner as any]));
     }
 
     setIsPartnerModalOpen(false);
@@ -158,7 +159,7 @@ export default function PartnershipManagement({
     if (!selectedPartnerForPayout || payoutAmount <= 0) return;
 
     const newPayout: PartnerPayout = {
-      id: `PAY-${Date.now().toString().slice(-4)}`,
+      id: generateUniqueId('PAY'),
       partnerId: selectedPartnerForPayout.id,
       partnerName: selectedPartnerForPayout.name,
       date: new Date().toISOString().split('T')[0],
@@ -168,7 +169,7 @@ export default function PartnershipManagement({
       notes: payoutNotes
     };
 
-    setPayouts([newPayout, ...payouts]);
+    setPayouts(prev => [newPayout, ...prev]);
 
     // Update partner's total withdrawn
     setPartners(prev => prev.map(p => {
@@ -192,14 +193,33 @@ export default function PartnershipManagement({
     }
 
     if (window.confirm(`هل أنت متأكد من اعتماد وصرف توزيع أرباح إجمالي بقيمة ${profitPool.toLocaleString()} ج.م على جميع الشركاء وفقاً لنسب حصصهم؟`)) {
-      const newPayoutsList: PartnerPayout[] = [];
-      const updatedPartners = partners.map(p => {
+      // 1. Calculate preliminary rounded shares
+      let distributedSum = 0;
+      const shares = partners.map((p) => {
         const shareRatio = totalCapital > 0 ? p.capital / totalCapital : 0;
-        const individualShare = Math.round(shareRatio * profitPool);
+        const share = Math.round(shareRatio * profitPool);
+        distributedSum += share;
+        return { partner: p, share };
+      });
 
+      // 2. Allocate any rounding discrepancy (remainder) to the partner with largest share
+      const remainder = profitPool - distributedSum;
+      if (remainder !== 0 && shares.length > 0) {
+        let maxIdx = 0;
+        for (let i = 1; i < shares.length; i++) {
+          if (shares[i].share > shares[maxIdx].share) {
+            maxIdx = i;
+          }
+        }
+        shares[maxIdx].share += remainder;
+      }
+
+      // 3. Generate payouts and update partners' withdrawn totals
+      const newPayoutsList: PartnerPayout[] = [];
+      const updatedPartners = shares.map(({ partner: p, share: individualShare }) => {
         if (individualShare > 0) {
           newPayoutsList.push({
-            id: `PAY-${Math.floor(1000 + Math.random() * 9000)}`,
+            id: generateUniqueId('PAY'),
             partnerId: p.id,
             partnerName: p.name,
             date: new Date().toISOString().split('T')[0],
@@ -216,9 +236,9 @@ export default function PartnershipManagement({
         };
       });
 
-      setPayouts([...newPayoutsList, ...payouts]);
+      setPayouts(prev => [...newPayoutsList, ...prev]);
       setPartners(updatedPartners);
-      alert('تم تسجيل وصرف توزيعات الأرباح للجميع بنجاح وتحديث الكشوفات!');
+      alert('تم تسجيل وصرف توزيعات الأرباح للجميع بنجاح وتحديث الكشوفات بدقة 100% دون فروق تقريب!');
     }
   };
 

@@ -40,6 +40,7 @@ export function mapWorkerToDb(w: Worker) {
     bonus_notes: w.bonusNotes || '',
     manual_bonus: w.manualBonus || 0,
     has_bonus: w.hasBonus || false,
+    monthly_regularity_bonus: w.monthlyRegularityBonus ?? 500,
     is_archived: w.isArchived || false,
   };
 }
@@ -67,6 +68,7 @@ export function mapDbToWorker(row: any): Worker {
     bonusNotes: row.bonus_notes || '',
     manualBonus: Number(row.manual_bonus) || 0,
     hasBonus: Boolean(row.has_bonus),
+    monthlyRegularityBonus: Number(row.monthly_regularity_bonus ?? 500),
     isArchived: Boolean(row.is_archived),
   };
 }

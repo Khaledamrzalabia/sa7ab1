@@ -159,11 +159,12 @@ export default function Header({
         </div>
 
         {/* Desktop Status Badges & Quick Action */}
+        {/* Desktop Status Badges & Quick Action */}
         <button
           type="button"
-          onClick={onOpenBackupModal}
-          title="انقر لعرض تفاصيل قاعدة البيانات ومزامنة السحابة"
-          className={`hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-xs font-black transition-all cursor-pointer shadow-2xs hover:scale-102 active:scale-98 ${
+          onClick={currentUser?.type === 'owner' ? onOpenBackupModal : undefined}
+          title={currentUser?.type === 'owner' ? "انقر لعرض تفاصيل قاعدة البيانات ومزامنة السحابة" : "حالة الاتصال السحابي"}
+          className={`hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-xs font-black transition-all ${currentUser?.type === 'owner' ? 'cursor-pointer hover:scale-102 active:scale-98' : 'cursor-default'} shadow-2xs ${
             dbConnected
               ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 hover:bg-emerald-100/90'
               : 'bg-amber-50/90 border-amber-300 text-amber-950 hover:bg-amber-100/90'
@@ -190,7 +191,9 @@ export default function Header({
           <span className={dbConnected ? 'text-emerald-800 font-bold' : 'text-amber-800 font-bold'}>
             {isSaving ? 'جارِ المزامنة السحابية...' : dbConnected ? 'سحابية متزامنة اللحظة' : 'محفوظ محلياً بنجاح'}
           </span>
-          <span className="material-symbols-outlined text-xs text-slate-500">settings</span>
+          {currentUser?.type === 'owner' && (
+            <span className="material-symbols-outlined text-xs text-slate-500">settings</span>
+          )}
         </button>
 
         {onOpenTerminal && (
@@ -203,7 +206,7 @@ export default function Header({
           </button>
         )}
 
-        {onOpenBackupModal && (
+        {currentUser?.type === 'owner' && onOpenBackupModal && (
           <button
             onClick={onOpenBackupModal}
             className="hidden xl:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-black transition-all cursor-pointer"

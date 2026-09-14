@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS public.workers (
     bonus_notes TEXT DEFAULT '',
     manual_bonus NUMERIC(12, 2) DEFAULT 0.00,
     has_bonus BOOLEAN DEFAULT false,
+    monthly_regularity_bonus NUMERIC(12, 2) DEFAULT 500.00,
     is_archived BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

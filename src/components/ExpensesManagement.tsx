@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Expense } from '../types';
+import { generateUniqueId } from '../utils/idGenerator';
 
 interface ExpensesManagementProps {
   expenses: Expense[];
@@ -82,7 +83,7 @@ export default function ExpensesManagement({
     setAmount(1000);
     setDate(new Date().toISOString().split('T')[0]);
     setPaymentMethod('cash');
-    setReceiptRef(`REC-${Math.floor(1000 + Math.random() * 9000)}`);
+    setReceiptRef(generateUniqueId('REC'));
     setParty('');
     setRecordedBy('مسؤول الخزينة');
     setNotes('');
@@ -114,8 +115,13 @@ export default function ExpensesManagement({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!title.trim() || amount <= 0) {
+      alert('يرجى إدخال وصف صالح ومبلغ أكبر من صفر.');
+      return;
+    }
+
     if (isEditing) {
-      setExpenses(prev => prev.map(item => {
+      setExpenses(prev => prev.map((item) => {
         if (item.id === editId) {
           return {
             ...item,
@@ -134,7 +140,7 @@ export default function ExpensesManagement({
         return item;
       }));
     } else {
-      const newId = `TRX-${Date.now().toString().slice(-4)}`;
+      const newId = generateUniqueId('TRX');
       const newExpense: Expense = {
         id: newId,
         type,
@@ -149,7 +155,7 @@ export default function ExpensesManagement({
         recordedBy,
         notes
       };
-      setExpenses([newExpense, ...expenses]);
+      setExpenses(prev => [newExpense, ...prev]);
     }
 
     setIsModalOpen(false);
