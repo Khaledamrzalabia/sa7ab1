@@ -234,6 +234,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
     }
 
+    // 7. Assistants
+    for (const ast of assistants) {
+      await client.query(
+        `INSERT INTO public.assistants (id, name, username, phone, password, role_title, shift, gate_or_location, status, permissions, operations_count, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           username = EXCLUDED.username,
+           phone = EXCLUDED.phone,
+           password = EXCLUDED.password,
+           role_title = EXCLUDED.role_title,
+           shift = EXCLUDED.shift,
+           gate_or_location = EXCLUDED.gate_or_location,
+           status = EXCLUDED.status,
+           permissions = EXCLUDED.permissions,
+           operations_count = EXCLUDED.operations_count,
+           notes = EXCLUDED.notes`,
+        [
+          ast.id,
+          ast.name,
+          ast.username,
+          ast.phone,
+          ast.password || '123',
+          ast.roleTitle || ast.role_title || '',
+          ast.shift || '',
+          ast.gateOrLocation || ast.gate_or_location || '',
+          ast.status || 'active',
+          ast.permissions ? JSON.stringify(ast.permissions) : '{}',
+          ast.operationsCount ?? ast.operations_count ?? 0,
+          ast.notes || ''
+        ]
+      );
+    }
+
     await client.query('COMMIT');
     return res.status(200).json({ success: true, message: 'تم حفظ ومزامنة البيانات مع Supabase بنجاح!' });
   } catch (err: any) {
