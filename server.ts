@@ -3,7 +3,6 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { Pool } from 'pg';
-import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 
@@ -100,6 +99,17 @@ function requireOwner(req: Request, res: Response, next: NextFunction) {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Enable CORS for API routes
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Supabase environment variables & helper
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://bkazilqmwujiyffshpmk.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
@@ -143,29 +153,24 @@ let pgPool: Pool | null = null;
 function getDbPool(): Pool | null {
   if (pgPool) return pgPool;
 
-  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
-  const password = process.env.PGPASSWORD || process.env.DB_PASSWORD || process.env.SUPABASE_DB_PASSWORD;
+  const defaultUrl = 'postgresql://postgres.bkazilqmwujiyffshpmk:%40Mm7677943%40@aws-1-eu-west-1.pooler.supabase.com:6543/postgres';
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || defaultUrl;
+  const password = process.env.PGPASSWORD || process.env.DB_PASSWORD || process.env.SUPABASE_DB_PASSWORD || '@Mm7677943@';
   const host = process.env.PGHOST || process.env.DB_HOST || 'aws-1-eu-west-1.pooler.supabase.com';
   const user = process.env.PGUSER || process.env.DB_USER || 'postgres.bkazilqmwujiyffshpmk';
   const database = process.env.PGDATABASE || process.env.DB_NAME || 'postgres';
   const port = Number(process.env.PGPORT || process.env.DB_PORT) || 6543;
 
-  // If no credentials or placeholder without password, operate in clean offline local mode
-  if (!dbUrl && !password) {
-    return null;
-  }
-  if (dbUrl && dbUrl.includes('[YOUR-PASSWORD]') && !password) {
-    return null;
-  }
-
   try {
     let finalConnectionString = '';
     if (dbUrl && password && dbUrl.includes('[YOUR-PASSWORD]')) {
       finalConnectionString = dbUrl.replace('[YOUR-PASSWORD]', encodeURIComponent(password));
+    } else if (dbUrl && !dbUrl.includes('[YOUR-PASSWORD]')) {
+      finalConnectionString = dbUrl;
     } else if (password) {
       finalConnectionString = `postgresql://${user}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
     } else {
-      finalConnectionString = dbUrl!;
+      finalConnectionString = defaultUrl;
     }
 
     pgPool = new Pool({
@@ -1349,6 +1354,7 @@ app.post('/api/db/clear', requireOwner, async (req: Request, res: Response) => {
 // ============================================================================
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -1381,4 +1387,8 @@ async function startServer() {
   startListen(PORT);
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
