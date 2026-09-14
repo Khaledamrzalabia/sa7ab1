@@ -51,7 +51,7 @@ import {
 } from './data';
 
 const STORAGE_KEYS = {
-  CLEAN_V5: 'sahab_erp_clean_zero_production_v5',
+  CLEAN_V5: 'sahab_erp_clean_zero_production_v6',
   WORKERS: 'smart_forge_workers',
   LOGS: 'smart_forge_attendance_logs',
   INCENTIVES: 'smart_forge_incentives_penalties',
